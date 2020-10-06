@@ -6,9 +6,7 @@
 # (to be used in 'shell.nix').
 
 { src, system ? builtins.currentSystem or "unknown-system" }:
-
 let
-
   lockFilePath = src + "/flake.lock";
 
   lockFile = builtins.fromJSON (builtins.readFile lockFilePath);
@@ -16,7 +14,8 @@ let
   fetchTree =
     info:
     if info.type == "github" then
-      { outPath = fetchTarball "https://api.${info.host or "github.com"}/repos/${info.owner}/${info.repo}/tarball/${info.rev}";
+      {
+        outPath = fetchTarball "https://api.${info.host or "github.com"}/repos/${info.owner}/${info.repo}/tarball/${info.rev}";
         rev = info.rev;
         shortRev = builtins.substring 0 7 info.rev;
         lastModified = info.lastModified;
@@ -24,12 +23,11 @@ let
         narHash = info.narHash;
       }
     else if info.type == "git" then
-      { outPath =
-          builtins.fetchGit
-            ({ url = info.url; }
-             // (if info ? rev then { inherit (info) rev; } else {})
-             // (if info ? ref then { inherit (info) ref; } else {})
-            );
+      {
+        outPath =
+          builtins.fetchGit ({ url = info.url; }
+            // (if info ? rev then { inherit (info) rev; } else { })
+            // (if info ? ref then { inherit (info) ref; } else { }));
         rev = info.rev;
         shortRev = builtins.substring 0 7 info.rev;
         lastModified = info.lastModified;
@@ -37,55 +35,62 @@ let
         narHash = info.narHash;
       }
     else if info.type == "path" then
-      { outPath = builtins.path { path = info.path; };
+      {
+        outPath = builtins.path { path = info.path; };
         narHash = info.narHash;
       }
     else if info.type == "tarball" then
-      { outPath = fetchTarball info.url;
+      {
+        outPath = fetchTarball info.url;
         narHash = info.narHash;
       }
     else if info.type == "gitlab" then
-      { inherit (info) rev narHash lastModified;
+      {
+        inherit (info) rev narHash lastModified;
         outPath = fetchTarball "https://${info.host or "gitlab.com"}/api/v4/projects/${info.owner}%2F${info.repo}/repository/archive.tar.gz?sha=${info.rev}";
         shortRev = builtins.substring 0 7 info.rev;
       }
     else
-      # FIXME: add Mercurial, tarball inputs.
+    # FIXME: add Mercurial, tarball inputs.
       throw "flake input has unsupported input type '${info.type}'";
 
   callFlake4 = flakeSrc: locks:
     let
       flake = import (flakeSrc + "/flake.nix");
 
-      inputs = builtins.mapAttrs (n: v:
-        if v.flake or true
-        then callFlake4 (fetchTree (v.locked // v.info)) v.inputs
-        else fetchTree (v.locked // v.info)) locks;
+      inputs = builtins.mapAttrs
+        (n: v:
+          if v.flake or true
+          then callFlake4 (fetchTree (v.locked // v.info)) v.inputs
+          else fetchTree (v.locked // v.info))
+        locks;
 
-      outputs = flakeSrc // (flake.outputs (inputs // {self = outputs;}));
+      outputs = flakeSrc // (flake.outputs (inputs // { self = outputs; }));
     in
-      assert flake.edition == 201909;
-      outputs;
+    assert flake.edition == 201909;
+    outputs;
 
   callLocklessFlake = flakeSrc:
     let
       flake = import (flakeSrc + "/flake.nix");
       outputs = flakeSrc // (flake.outputs ({ self = outputs; }));
-    in outputs;
+    in
+    outputs;
 
-  rootSrc = let
-    dir = builtins.readDir src;
-    gitDir = builtins.readDir (src + "/.git");
-    isGitDir = dir ? ".git" && dir.".git" == "directory";
-    isShallow = gitDir ? "shallow";
-    # Try to clean the source tree by using fetchGit, if this source
-    # tree is a valid git repository.
-    tryFetchGit = src:
-      if isGitDir && !isShallow
-      then builtins.fetchGit src
-      else { outPath = src; };
+  rootSrc =
+    let
+      dir = builtins.readDir src;
+      gitDir = builtins.readDir (src + "/.git");
+      isGitDir = dir ? ".git" && dir.".git" == "directory";
+      isShallow = gitDir ? "shallow";
+      # Try to clean the source tree by using fetchGit, if this source
+      # tree is a valid git repository.
+      tryFetchGit = src:
+        if isGitDir && !isShallow
+        then builtins.fetchGit src
+        else { outPath = src; };
 
-  in
+    in
     (if src ? outPath then src else tryFetchGit src)
     // { lastModified = 0; lastModifiedDate = formatSecondsSinceEpoch 0; };
 
@@ -112,7 +117,8 @@ let
       y' = y + (if m <= 2 then 1 else 0);
 
       pad = s: if builtins.stringLength s < 2 then "0" + s else s;
-    in "${toString y'}${pad (toString m)}${pad (toString d)}${pad (toString hours)}${pad (toString minutes)}${pad (toString seconds)}";
+    in
+    "${toString y'}${pad (toString m)}${pad (toString d)}${pad (toString hours)}${pad (toString minutes)}${pad (toString seconds)}";
 
   allNodes =
     builtins.mapAttrs
@@ -121,7 +127,7 @@ let
           sourceInfo =
             if key == lockFile.root
             then rootSrc
-            else fetchTree (node.info or {} // removeAttrs node.locked ["dir"]);
+            else fetchTree (node.info or { } // removeAttrs node.locked [ "dir" ]);
 
           subdir = if key == lockFile.root then "" else node.locked.dir or "";
 
@@ -129,20 +135,20 @@ let
 
           inputs = builtins.mapAttrs
             (inputName: inputSpec: allNodes.${resolveInput inputSpec})
-            (node.inputs or {});
+            (node.inputs or { });
 
           # Resolve a input spec into a node name. An input spec is
           # either a node name, or a 'follows' path from the root
           # node.
           resolveInput = inputSpec:
-              if builtins.isList inputSpec
-              then getInputByPath lockFile.root inputSpec
-              else inputSpec;
+            if builtins.isList inputSpec
+            then getInputByPath lockFile.root inputSpec
+            else inputSpec;
 
           # Follow an input path (e.g. ["dwarffs" "nixpkgs"]) from the
           # root node, returning the final node.
           getInputByPath = nodeName: path:
-            if path == []
+            if path == [ ]
             then nodeName
             else
               getInputByPath
@@ -152,13 +158,13 @@ let
 
           outputs = flake.outputs (inputs // { self = result; });
 
-          result = outputs // sourceInfo // { inherit inputs; inherit outputs; inherit sourceInfo; };
+          result = outputs // sourceInfo // { inherit inputs;inherit outputs;inherit sourceInfo; };
         in
-          if node.flake or true then
-            assert builtins.isFunction flake.outputs;
-            result
-          else
-            sourceInfo
+        if node.flake or true then
+          assert builtins.isFunction flake.outputs;
+          result
+        else
+          sourceInfo
       )
       lockFile.nodes;
 
@@ -172,12 +178,12 @@ let
     else throw "lock file '${lockFilePath}' has unsupported version ${toString lockFile.version}";
 
 in
-  rec {
-    defaultNix =
-      result
-      // (if result ? defaultPackage.${system} then { default = result.defaultPackage.${system}; } else {});
+rec {
+  defaultNix =
+    result
+    // (if result ? defaultPackage.${system} then { default = result.defaultPackage.${system}; } else { });
 
-    shellNix =
-      defaultNix
-      // (if result ? devShell.${system} then { default = result.devShell.${system}; } else {});
-  }
+  shellNix =
+    defaultNix
+    // (if result ? devShell.${system} then { default = result.devShell.${system}; } else { });
+}
