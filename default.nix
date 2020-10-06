@@ -186,4 +186,8 @@ rec {
   shellNix =
     defaultNix
     // (if result ? devShell.${system} then { default = result.devShell.${system}; } else { });
+
+  legacyPackages =
+    result
+    // (if result ? packages.${system}.legacyPackages then { default = result.packages.${system}.legacyPackages; } else { });
 }
